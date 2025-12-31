@@ -1,0 +1,235 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #050505; /* 更纯粹的黑，突出金色 */
+    font-family: 'Oswald', sans-serif;
+    overflow: hidden;
+}
+
+/* 烟花 Canvas 全屏背景 */
+#fireworks {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.container {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+h2 {
+    color: #fff;
+    font-size: 2rem;
+    letter-spacing: 5px;
+    margin-bottom: 30px;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+/* --- 金色年份样式 (修改点) --- */
+/* --- 金色年份样式 (修改版：纯金色) --- */
+.year {
+    font-size: 9rem;
+    font-weight: bold;
+    margin-top: 10px;
+    
+    /* 纯金色 hex 代码 */
+    color: #ffffff; 
+    
+    /* 移除之前的渐变和裁剪属性 */
+    background: none;
+    -webkit-text-fill-color: initial;
+    -webkit-background-clip: initial;
+    
+    /* 保留一点金色的外发光，更有氛围感 */
+    text-shadow: 0 0 25px rgba(255, 215, 0, 0.6);
+    
+    /* 确保完全不透明 */
+    opacity: 1;
+}
+
+.countdown {
+    display: flex;
+    gap: 20px;
+}
+
+.block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.label {
+    margin-top: 15px;
+    color: #888;
+    font-size: 0.8rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+/* --- 翻页时钟核心样式 (重写修复BUG) --- */
+.flip-card {
+    position: relative;
+    width: 80px;
+    height: 90px;
+    font-size: 4rem; /* 调整字体大小以适应卡片 */
+    background: transparent;
+    border-radius: 6px;
+    perspective: 400px; /* 增加视距，让3D效果更自然 */
+}
+
+/* 公共样式：四个面 */
+.top, .bottom, .top-back, .bottom-back {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 50%;
+    overflow: hidden;
+    background-color: #222; /* 必须是不透明背景，防止重影 */
+    color: #e0e0e0;
+    
+    /* 核心修复：隐藏背面，防止翻转时看到背后的数字 */
+    backface-visibility: hidden; 
+    -webkit-backface-visibility: hidden;
+    transform-style: preserve-3d;
+}
+
+/* --- 上半部分处理 --- */
+.top, .top-back {
+    top: 0;
+    border-radius: 6px 6px 0 0;
+    border-bottom: 1px solid rgba(0,0,0,0.5); /* 中间分割线 */
+    
+    /* Flex布局：让文字底部对齐，从而只显示数字的上半截 */
+    display: flex;
+    justify-content: center;
+    align-items: flex-end; 
+    
+    transform-origin: bottom; /* 沿底部翻转 */
+}
+/* 修正：因为 flex-end 会把文字顶到底，我们需要把行高设为卡片总高度，
+   然后裁剪掉下半部分。*/
+.top, .top-back {
+    line-height: 90px; /* 设为卡片高度 */
+    display: block;    /* 恢复 block */
+    text-align: center;
+}
+
+/* --- 下半部分处理 --- */
+.bottom, .bottom-back {
+    bottom: 0;
+    border-radius: 0 0 6px 6px;
+    
+    display: flex;
+    justify-content: center;
+    align-items: flex-start; /* 顶部对齐 */
+    overflow: hidden;
+    
+    transform-origin: top; /* 沿顶部翻转 */
+}
+
+/* 修正：下半部分文字位置调整 */
+.bottom, .bottom-back {
+    line-height: 0; /* 设为0，把文字向上拉 */
+    display: block;
+    text-align: center;
+}
+/* 这里的逻辑是：如果是 block + line-height:0，文字中心会在顶部。
+   配合 height:50% 和 overflow:hidden，正好显示下半截。 */
+
+/* --- 静态层级 (z-index) --- */
+.top {
+    z-index: 2;
+    transform: rotateX(0deg);
+}
+.bottom {
+    z-index: 1;
+}
+
+/* --- 动画层级与初始状态 --- */
+.top-back {
+    z-index: 3;
+    transform: rotateX(0deg); /* 初始覆盖在 top 上，但不显示（由JS控制内容）*/
+    /* 这里有个技巧：翻转前的 top-back 其实是不应该显示的。
+       我们在动画里处理。修改为初始由 rotateX(0) 改为 rotateX(0) 
+       但是因为它是背面，我们需要确保逻辑正确。
+       
+       标准逻辑：
+       1. Top (静态旧)
+       2. Bottom (静态新) - 在最底层
+       3. Top-Back (动画旧->新) - 实际上是旧数字往下翻，变成新数字的下半部分？
+          不，是 Top-Back (显示旧数字) 往下翻？
+          
+       让我们修正为最稳健的动画模型：
+       A. Top (静态，显示新数字) - 等待动画结束显示
+       B. Bottom (静态，显示新数字)
+       C. Top-Flip (显示旧数字) -> 翻转到下面
+       D. Bottom-Flip (显示新数字) -> 也就是 Top-Flip 的背面？
+    */
+}
+
+/* 简化模型修复重影：
+   我们需要两个额外的层来进行动画：
+   .top-back (旧数字的上半截) -> 翻转下去
+   .bottom-back (新数字的下半截) -> 翻转上来
+*/
+
+.top-back {
+    z-index: 4;
+    transform: rotateX(0deg);
+    transform-origin: bottom;
+}
+
+.bottom-back {
+    z-index: 3;
+    transform: rotateX(90deg); /* 初始是平躺的 */
+    transform-origin: top;
+}
+
+
+/* --- 动画定义 --- */
+.flip .top-back {
+    animation: flipTop 0.6s ease-in forwards;
+}
+
+.flip .bottom-back {
+    animation: flipBottom 0.6s ease-out forwards;
+}
+
+@keyframes flipTop {
+    0% { transform: rotateX(0deg); }
+    100% { transform: rotateX(-90deg); }
+}
+
+@keyframes flipBottom {
+    0% { transform: rotateX(90deg); }
+    100% { transform: rotateX(0deg); }
+}
+
+/* 响应式 */
+@media (max-width: 600px) {
+    .flip-card {
+        width: 60px;
+        height: 70px;
+        font-size: 2.5rem;
+    }
+    .top, .top-back { line-height: 70px; }
+    h2 { font-size: 1.5rem; }
+    .year { font-size: 5rem; }
+}
